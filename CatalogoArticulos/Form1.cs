@@ -1,0 +1,371 @@
+﻿using Dominio;
+using negocio;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace CatalogoArticulos
+{
+    public partial class CatalogoArticulos : Form
+    {
+
+        private int indiceImagenActual = 0;
+        private List<Imagen> imagenesArticuloActual = new List<Imagen>();
+        private Timer timerBusquedaTexto;
+
+        public CatalogoArticulos()
+        {
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+
+            cargarDatos();
+            cargarCategorias();
+            ordenPrecio();
+            cargarMarcas();
+
+            timerBusquedaTexto = new Timer();
+            timerBusquedaTexto.Interval = 1000;
+            timerBusquedaTexto.Tick += TimerBusquedaTexto_Tick; // Asociamos el envento Tick del timer a la funcion TimerBusquedaTexto_Tick
+                                                                // Cada vez que se dispare el evento Tick, se ejecutara la funcion
+
+        }
+        private void ordenPrecio()
+        {
+            cboOrden.Items.Clear();
+            cboOrden.Items.Add("Sin ordenar");           
+            cboOrden.Items.Add("Precio: menor a mayor");  
+            cboOrden.Items.Add("Precio: mayor a menor"); 
+            cboOrden.SelectedIndex = 0; 
+        }
+
+        private void cargarCategorias()
+        {
+            CategoriaNegocio negocio = new CategoriaNegocio();
+            var listaCategorias = negocio.Listar();
+
+            // Crear un elemento vacío para "sin filtro"
+            listaCategorias.Insert(0, new Categoria { Id = 0, Descripcion = "--Todos--" });
+
+            cbBoxCategoria.SelectedIndexChanged -= cbBoxCategoria_SelectedIndexChanged;
+
+            cbBoxCategoria.DataSource = listaCategorias;
+            cbBoxCategoria.DisplayMember = "Descripcion";
+            cbBoxCategoria.ValueMember = "Id";
+            cbBoxCategoria.SelectedIndex = 0; // seleccionamos el primer elemento "--Todos--"
+
+            cbBoxCategoria.SelectedIndexChanged += cbBoxCategoria_SelectedIndexChanged;
+        }
+
+        private void cargarMarcas()
+        {
+            MarcaNegocio negocio = new MarcaNegocio();
+            var listaMarcas = negocio.Listar();
+
+            listaMarcas.Insert(0, new Marca { Id = 0, Descripcion = "--Todas--" });
+
+            cbBoxMarca.SelectedIndexChanged -= cbBoxMarca_SelectedIndexChanged;
+
+            cbBoxMarca.DataSource = listaMarcas;
+            cbBoxMarca.DisplayMember = "Descripcion";
+            cbBoxMarca.ValueMember = "Id";
+            cbBoxMarca.SelectedIndex = 0;
+
+            cbBoxMarca.SelectedIndexChanged += cbBoxMarca_SelectedIndexChanged;
+        }
+
+        private void cargarDatos()
+        {
+            ArticuloNegocio negocio = new ArticuloNegocio();
+            try
+            {
+
+                dgvArticulos.DataSource = negocio.Listar();
+                dgvArticulos.Columns["ID"].Visible = false;
+
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString());
+            }
+        }
+
+        
+
+        private void cargarImagen(string url)
+        {
+
+            try
+            {
+                pbxArticulo.Load(url);
+                if (imagenesArticuloActual != null && imagenesArticuloActual.Count > 0)
+                {
+                    lblIndiceImagen.Text = $"Imagen {indiceImagenActual + 1} de {imagenesArticuloActual.Count}";
+                }
+                else
+                {
+                    lblIndiceImagen.Text = "Sin imágenes";
+                }
+            }
+            catch
+            {
+                pbxArticulo.Load("https://efectocolibri.com/wp-content/uploads/2021/01/placeholder.png");
+                lblIndiceImagen.Text = "Imagen no disponible";
+            }
+        }
+        
+        private void AplicarFiltros()
+        {
+            try
+            {
+                ArticuloNegocio negocio = new ArticuloNegocio();
+                var lista = negocio.Listar();
+
+                
+                if (!string.IsNullOrWhiteSpace(txtBusquedaNombre.Text))
+                {
+                    lista = lista.FindAll(a => a.Nombre.IndexOf(txtBusquedaNombre.Text, StringComparison.OrdinalIgnoreCase) >= 0);
+                }
+
+                
+                int idCategoria = Convert.ToInt32(cbBoxCategoria.SelectedValue);
+                if (idCategoria != 0)
+                {
+                    lista = lista.FindAll(a => a.Categoria.Id == idCategoria);
+                }
+
+                
+                int idMarca = Convert.ToInt32(cbBoxMarca.SelectedValue);
+                if (idMarca != 0)
+                {
+                    lista = lista.FindAll(a => a.Marca.Id == idMarca);
+                }
+
+                dgvArticulos.DataSource = lista;
+
+                if (dgvArticulos.Columns["ID"] != null)
+                    dgvArticulos.Columns["ID"].Visible = false;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al aplicar filtros: " + ex.Message);
+            }
+        }
+
+        private void btnAgregar_Click(object sender, EventArgs e)
+        {
+            frmAgregarArticulo agregarArticulo = new frmAgregarArticulo();
+            agregarArticulo.ShowDialog();
+            if (agregarArticulo.ArticuloAgregado)
+            {
+                cargarDatos();
+               
+            }
+            cargarCategorias();// recargo las categorias y marcas por si se agrego alguna nueva
+            cargarMarcas();
+        }
+
+        private void dgvArticulos_SelectionChanged(object sender, EventArgs e)
+        {
+            // Verifica que haya una fila seleccionada ANTES de hacer cualquier cosa.
+            if (dgvArticulos.CurrentRow == null)
+            {
+                //  si no o hay selección, limpiamos imagen y label
+                pbxArticulo.Image = null;
+                lblIndiceImagen.Text = "Sin imágenes";
+                ActualizarEstadoBotones();
+                return; 
+            }
+
+            
+            if (pbxArticulo.Image != null)
+            {
+                pbxArticulo.Image.Dispose(); // Libera la imagen actual para evitar problemas de memoria
+                pbxArticulo.Image = null; // Limpia la imagen del Pbx
+            }
+
+            Articulo seleccionado = (Articulo)dgvArticulos.CurrentRow.DataBoundItem;
+
+            if (seleccionado.Imagenes != null && seleccionado.Imagenes.Count > 0) 
+            {
+                imagenesArticuloActual = seleccionado.Imagenes;
+                indiceImagenActual = 0;
+                cargarImagen(imagenesArticuloActual[indiceImagenActual].Url);
+            }
+            else
+            {
+                indiceImagenActual = 0;
+                cargarImagen("https://efectocolibri.com/wp-content/uploads/2021/01/placeholder.png");
+            }
+            // Actualiza label siempre
+            if (imagenesArticuloActual.Count > 0)
+                lblIndiceImagen.Text = $"Imagen {indiceImagenActual + 1} de {imagenesArticuloActual.Count}";
+            else
+                lblIndiceImagen.Text = "Sin imágenes";
+            
+            //  Actualiza estado de botones
+            ActualizarEstadoBotones();
+        }
+
+        private void btnEliminar_Click(object sender, EventArgs e)
+        {
+            if (dgvArticulos.CurrentRow != null)
+            {
+                Articulo seleccionado = (Articulo)dgvArticulos.CurrentRow.DataBoundItem;
+
+                DialogResult respuesta = MessageBox.Show(
+                    $"¿Seguro que desea eliminar el artículo '{seleccionado.Nombre}'?",
+                    "Confirmar eliminación",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (respuesta == DialogResult.Yes)
+                {
+                    ArticuloNegocio negocio = new ArticuloNegocio();
+                    negocio.Eliminar(seleccionado.Id);
+
+                    // Refrescar grilla
+                    cargarDatos();
+
+                    // Selecciona la primera fila si existe
+                    if (dgvArticulos.Rows.Count > 0)
+                        dgvArticulos.CurrentCell = dgvArticulos.Rows[0].Cells[1];
+                    else
+                        lblIndiceImagen.Text = "Sin imágenes";
+                }
+            }
+            else
+            {
+                MessageBox.Show("Seleccione un artículo primero.", "Atención",MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+            }
+        }
+
+        private void btnIzquierda_Click(object sender, EventArgs e)
+        {
+            if (imagenesArticuloActual.Count == 0) return; // Verifica si hay imagenes cargadas, si no hay, retorna (no hace nada)
+
+            indiceImagenActual--;  // Baja el indice para ir a la imagen anterior
+
+            if (indiceImagenActual < 0)
+                indiceImagenActual = imagenesArticuloActual.Count - 1; // Si el indice es menor a 0 (es la primera imagen) vuelve al final, o sea hace efecto circular
+
+            cargarImagen(imagenesArticuloActual[indiceImagenActual].Url); // Carga la imagen en el PictureBox con el indice actualizado
+        }
+
+        private void btnDerecha_Click(object sender, EventArgs e)
+        {
+            if (imagenesArticuloActual.Count == 0) return;
+
+            indiceImagenActual++;
+
+            if (indiceImagenActual >= imagenesArticuloActual.Count)
+                indiceImagenActual = 0; // vuelve al inicio
+
+            cargarImagen(imagenesArticuloActual[indiceImagenActual].Url);
+        }
+
+        private void btnEditar_Click(object sender, EventArgs e)
+        {
+            if (dgvArticulos.CurrentRow != null)
+            {
+                Articulo seleccionado = (Articulo)dgvArticulos.CurrentRow.DataBoundItem;
+                int filaActual = dgvArticulos.CurrentRow.Index; // para saber que fila se esta modificando
+                frmAgregarArticulo modificarArticulo = new frmAgregarArticulo(seleccionado);
+                modificarArticulo.ShowDialog();
+                if (modificarArticulo.ArticuloAgregado)
+                {
+                    cargarDatos();
+
+                    // Volver a seleccionar la misma fila si sigue existiendo
+                    if (dgvArticulos.Rows.Count > filaActual)
+                        dgvArticulos.CurrentCell = dgvArticulos.Rows[filaActual].Cells[1];
+                    else if (dgvArticulos.Rows.Count > 0)
+                        dgvArticulos.CurrentCell = dgvArticulos.Rows[dgvArticulos.Rows.Count - 1].Cells[1];
+                }
+                cargarCategorias();// recargo las categorias y marcas por si se agrego alguna nueva
+                cargarMarcas();
+            }
+            else
+            {
+                MessageBox.Show("Seleccione un artículo primero.", "Atención", MessageBoxButtons.OK,MessageBoxIcon.Warning);
+
+
+            }
+
+        }
+
+        private void ActualizarEstadoBotones()
+        {
+            // Si hay 0 o 1 imágenes, se deshabilitan los botones (no tiene sentido navegar)
+            bool habilitar = imagenesArticuloActual.Count > 1;
+            btnIzquierda.Enabled = habilitar;
+            btnDerecha.Enabled = habilitar;
+        }
+
+
+        private void TimerBusquedaTexto_Tick(object sender, EventArgs e)
+        {
+            // Cada vez que pasa el tiempo estipulado en el timer, se ejecuta esta funcion
+            // y el timer se detiene para no seguir ejecutandose y se aplican los filtros
+            timerBusquedaTexto.Stop(); 
+            AplicarFiltros();     
+        }
+
+        private void txtBusquedaNombre_TextChanged(object sender, EventArgs e)
+        {
+            // Cada letra que se escribe una letra, se dispara TextChanged.
+            // Luego reiniciamos el timer para que espere 1 segundo desde la ultima letra escrita (puede ser otro intervalo)
+            timerBusquedaTexto.Stop();
+            timerBusquedaTexto.Start();
+        }
+
+        private void cbBoxCategoria_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            
+            AplicarFiltros();
+        }
+
+        private void cbBoxMarca_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            
+            AplicarFiltros();
+        }
+
+        private void cboOrden_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            string orden = "";
+
+            if (cboOrden.SelectedItem != null)
+            {
+                switch (cboOrden.SelectedItem.ToString())
+                {
+                    case "Precio: menor a mayor":
+                        orden = "asc";
+                        break;
+                    case "Precio: mayor a menor":
+                        orden = "desc";
+                        break;
+                    case "Sin orden":
+                        orden = "";
+                        break;
+                }
+            }
+
+            var negocio = new ArticuloNegocio();
+            dgvArticulos.DataSource = negocio.Listar(orden);
+        }
+
+        
+    }
+}
